@@ -36,13 +36,16 @@ var homeserverURL string
 
 const userAgent = "MatrixBot/0.0 golang"
 
-var since = "s67_2781_8_31_7_1_6_32_1"
+var since string
+
 var loginToken string
+var selfID string
 
 const bufferSize = 1000
 
+var handlers []messageHandlerType
+
 func main() {
-	since = "s87_3901_10_34_16_1_6_35_1"
 	homeserverURL = "https://matrix.test.c583.psiroom.net"
 	client = http.Client{
 		Transport: &http.Transport{
@@ -52,24 +55,30 @@ func main() {
 	}
 
 	botUserName := "***REMOVED***"
+	botPassword := "***REMOVED***"
 
-	loginToken = login(botUserName, botPassword).AccessToken
+	loginRes := login(botUserName, botPassword)
+	loginToken = loginRes.AccessToken
+	selfID = loginRes.UserID
+
 	sync()
+
+	setupHandlers()
 
 	eventChannel := make(chan Event, bufferSize)
 	go vigilant(eventChannel)
 	go rootHandler(eventChannel)
 
 	// Blocks for input
+
 	var input string
 	fmt.Scanln(&input)
-
 }
 
 // Continually syncs and pipes new events to the channel
 func vigilant(ch chan Event) {
 	for {
-		results := sync()
+		results := getNewEvents()
 
 		for _, event := range results {
 			ch <- event
@@ -83,11 +92,18 @@ func vigilant(ch chan Event) {
 func rootHandler(ch chan Event) {
 	for {
 		event := <-ch
-		switch event.Event.EventType {
-		case "m.room.message":
-			fmt.Println("Message: ", event.Event)
-		default:
-			fmt.Println("Unknown event type: " + event.Event.EventType)
+
+		// Ignore self generated events
+		if event.Event.Sender != selfID {
+
+			// Try every handler
+			for _, handler := range handlers {
+				// Indicates if it should act as a final handler and
+				// disallow future actions (EG kicking, banning) should not warrant a text response
+				if handler(event) == true {
+					break
+				}
+			}
 		}
 	}
 }
