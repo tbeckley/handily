@@ -1,26 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 )
-
-// LoginRequest - Request structure for logins
-type LoginRequest struct {
-	Identifier struct {
-		UserType string `json:"type"`
-		User     string `json:"user"`
-	}
-	DisplayName string `json:"initial_device_display_name"`
-	Password    string `json:"password"`
-	AuthType    string `json:"type"`
-	User        string `json:"user"`
-}
 
 // LoginResponse - Respose structure for logins
 type LoginResponse struct {
@@ -30,62 +15,79 @@ type LoginResponse struct {
 	UserID      string `json:"user_id"`
 }
 
+// RoomEvent - Event in a room
+type RoomEvent struct {
+	Sender    string            `json:"sender"`
+	EventType string            `json:"type"`
+	EventID   string            `json:"event_id"`
+	ServerTS  uint64            `json:"origin_server_ts"`
+	Content   map[string]string `json:"content"`
+	Unsigned  map[string]string `json:"unsgined"`
+}
+
+// Event - Event to which we might have to respond to
+type Event struct {
+	Event RoomEvent
+	Room  string
+}
+
 var client http.Client
 var homeserverURL string
 
 const userAgent = "MatrixBot/0.0 golang"
 
-func assembleRequest(endpoint string, requestType string, body interface{}) *http.Request {
-	buf := new(bytes.Buffer)
-	json.NewEncoder(buf).Encode(body)
+var since = "s67_2781_8_31_7_1_6_32_1"
+var loginToken string
 
-	fullURL := homeserverURL + "/_matrix/client" + endpoint
-	httpReq, err := http.NewRequest(requestType, fullURL, buf)
-
-	if err != nil {
-		panic("Error assembling request:" + err.Error())
-	}
-
-	httpReq.Header.Add("Content-Type", "application/json")
-	httpReq.Header.Add("User-Agent", userAgent)
-
-	return httpReq
-}
-
-func login(username string, password string) LoginResponse {
-	req := &LoginRequest{
-		DisplayName: "Matrix Bot",
-		Password:    password,
-		AuthType:    "m.login.password",
-		User:        username,
-	}
-	req.Identifier.UserType = "m.id.user"
-	req.Identifier.User = username
-
-	_ = assembleRequest("/r0/login", "POST", req)
-
-	//resp, _ := client.Do(httpReq)
-	//defer resp.Body.Close()
-
-	var respObj LoginResponse
-	//json.NewDecoder(resp.Body).Decode(&respObj)
-
-	return respObj
-}
+const bufferSize = 1000
 
 func main() {
-	proxyURL, _ := url.Parse("http://localhost:5555")
-
+	since = "s87_3901_10_34_16_1_6_35_1"
 	homeserverURL = "https://matrix.test.c583.psiroom.net"
 	client = http.Client{
 		Transport: &http.Transport{
-			Proxy:           http.ProxyURL(proxyURL),
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 		Timeout: time.Second * 10,
 	}
 
-	loginResponse := login(botUserName, botPassword)
+	botUserName := "***REMOVED***"
 
-	fmt.Printf("%+v\n", loginResponse)
+	loginToken = login(botUserName, botPassword).AccessToken
+	sync()
+
+	eventChannel := make(chan Event, bufferSize)
+	go vigilant(eventChannel)
+	go rootHandler(eventChannel)
+
+	// Blocks for input
+	var input string
+	fmt.Scanln(&input)
+
+}
+
+// Continually syncs and pipes new events to the channel
+func vigilant(ch chan Event) {
+	for {
+		results := sync()
+
+		for _, event := range results {
+			ch <- event
+		}
+
+		time.Sleep(time.Second * 1)
+	}
+}
+
+// Handles events from the channel in an async buffered way
+func rootHandler(ch chan Event) {
+	for {
+		event := <-ch
+		switch event.Event.EventType {
+		case "m.room.message":
+			fmt.Println("Message: ", event.Event)
+		default:
+			fmt.Println("Unknown event type: " + event.Event.EventType)
+		}
+	}
 }
