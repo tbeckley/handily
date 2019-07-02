@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"time"
@@ -31,46 +30,42 @@ type Event struct {
 	Room  string
 }
 
-var client http.Client
-var homeserverURL string
-
-const userAgent = "MatrixBot/0.0 golang"
+var client = http.Client{
+	Timeout: time.Second * 10,
+}
 
 var since string
 
 var loginToken string
+var homeserverURL string
+var userAgent string
 var selfID string
 
+// Make this relatively large to handle the most notifications you could expect to recieve in a second or so
 const bufferSize = 1000
 
 var handlers []messageHandlerType
 
 func main() {
-	homeserverURL = "https://matrix.test.c583.psiroom.net"
-	client = http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		Timeout: time.Second * 10,
-	}
+	config := parseConfig("config.json")
+	homeserverURL = config.HomeserverURL
 
-	botUserName := "***REMOVED***"
-	botPassword := "***REMOVED***"
+	loginResult := login(config.BotUsername, config.BotPassword)
+	loginToken = loginResult.AccessToken // Sensitive!
+	selfID = loginResult.UserID
 
-	loginRes := login(botUserName, botPassword)
-	loginToken = loginRes.AccessToken
-	selfID = loginRes.UserID
+	// Initial Sync to establish a baseline
+	Sync()
 
-	sync()
-
+	// Add the handlers to process the events
 	setupHandlers()
 
+	// Setup the listeners and handler goroutines
 	eventChannel := make(chan Event, bufferSize)
 	go vigilant(eventChannel)
 	go rootHandler(eventChannel)
 
 	// Blocks for input
-
 	var input string
 	fmt.Scanln(&input)
 }

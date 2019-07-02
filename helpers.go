@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"os"
 )
 
 func assembleRequest(endpoint string, requestType string, body interface{}) *http.Request {
@@ -25,4 +26,26 @@ func assembleRequest(endpoint string, requestType string, body interface{}) *htt
 	}
 
 	return httpReq
+}
+
+const defaultHomeserver = "https://matrix.org"
+const defaultUserAgent = "Golang/0.1 MatrixBot"
+
+func parseConfig(fileName string) config {
+	file, _ := os.Open(fileName)
+	defer file.Close()
+
+	configVals := config{}
+	json.NewDecoder(file).Decode(&configVals)
+
+	// Default values
+	if configVals.HomeserverURL == "" {
+		configVals.HomeserverURL = defaultHomeserver
+	}
+
+	if configVals.CustomUserAgent == "" {
+		configVals.CustomUserAgent = defaultUserAgent
+	}
+
+	return configVals
 }
